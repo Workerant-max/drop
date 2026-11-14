@@ -1,6 +1,6 @@
 // Drop service worker: keeps the app opening offline-fast and catches things shared to it
 // from the Android share menu (Web Share Target). Bump V on every release.
-var V = 'drop-v1';
+var V = 'drop-v2';
 var SHELL = ['./', './index.html', './manifest.webmanifest', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', function (e) {

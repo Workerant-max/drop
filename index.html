@@ -60,6 +60,12 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 #qr{display:grid;place-items:center;background:#fff;padding:12px;border-radius:12px;margin:10px 0}
 .code{font:700 34px/1.1 ui-monospace,Consolas,monospace;letter-spacing:.18em;text-align:center;margin:6px 0}
 .foot{margin-top:28px;display:flex;gap:8px;flex-wrap:wrap}
+.tag{--h:212;display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;padding:3px 9px;border-radius:999px;margin-bottom:6px;
+  background:hsl(var(--h) 85% 93%);color:hsl(var(--h) 70% 28%);border:1px solid hsl(var(--h) 60% 82%);cursor:default}
+@media (prefers-color-scheme:dark){.tag{background:hsl(var(--h) 45% 20%);color:hsl(var(--h) 85% 82%);border-color:hsl(var(--h) 40% 32%)}}
+.devs{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px}
+.devs .tag{margin:0;cursor:pointer}
+.devs .seen{font-weight:400;opacity:.75}
 [hidden]{display:none!important}
 </style>
 </head>
@@ -98,6 +104,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 
   <!-- main -->
   <section id="main" hidden>
+    <div class="devs" id="devs"></div>
     <div class="card zone" id="zone">
       <input type="file" id="file" multiple hidden>
       <button class="pri" id="pick">Send files or photos</button>
@@ -166,7 +173,8 @@ var CHUNK = 3 * 1024 * 1024, PARALLEL = 3, POLL_MS = 12000;
 // The Apps Script web app. Inside Google the page talks to it directly; the installed app posts JSON to it.
 var API_URL = 'https://script.google.com/macros/s/AKfycbwVj0OwAM3aQPiQrPNFNptkhdZt2i4u5Cqohy6KAcwsA3rPTkJ0FOigwA3dZKPMTmNhNg/exec';
 var IN_GAS = !!(window.google && google.script && google.script.run);
-var ARGS = { status:[], claim:[], hello:['k'], makePairCode:['k'], redeemPairCode:['code'], rotateKey:['k'], list:['k'],
+var ARGS = { status:[], claim:[], hello:['k','dev','name'], makePairCode:['k'], redeemPairCode:['code'], rotateKey:['k'],
+  list:['k','dev','name'], devices:['k'], forgetDevice:['k','dev'],
   sendText:['k','from','text','ttl'], beginFile:['k','from','name','mime','size','n','ttl'], putChunk:['k','id','i','data'],
   getChunk:['k','id','i'], remove:['k','id'], removeAll:['k'] };
 var store = {
@@ -175,6 +183,10 @@ var store = {
   del:function(k){try{localStorage.removeItem(k);}catch(e){}}
 };
 var KEY = store.get('drop.key'), ME = store.get('drop.me'), APP_URL = '';
+// A random id for this device, so the device list shows each one once even if two share a name.
+var DEV = store.get('drop.dev');
+if (!DEV) { DEV = ''; for (var d = 0; d < 20; d++) DEV += 'abcdefghijklmnopqrstuvwxyz0123456789'[Math.floor(Math.random()*36)]; store.set('drop.dev', DEV); }
+var DEVICES = [];
 var items = [], seen = {}, got = {}, firstLoad = true, pollTimer = null, ups = {};
 var $ = function(id){return document.getElementById(id);};
 var isTouch = matchMedia('(pointer:coarse)').matches;
@@ -215,7 +227,7 @@ function boot(){
   var tries = [KEY, HASH_KEY].filter(function(k,i,a){ return k && a.indexOf(k)===i; });
   if (!tries.length) return setup();
   (function attempt(i){
-    call('hello', tries[i]).then(function(h){
+    call('hello', tries[i], DEV, ME || '').then(function(h){
       KEY = tries[i]; store.set('drop.key', KEY); APP_URL = IN_GAS ? h.url : location.origin + location.pathname;
       if (!ME) return naming();
       start();
@@ -254,7 +266,12 @@ function naming(){
   });
   $('nameIn').value = ME || '';
 }
-function setName(n){ n=String(n||'').trim().slice(0,30); if(!n) return; ME=n; store.set('drop.me',n); setMe(); start(); }
+function setName(n){
+  n=String(n||'').trim().slice(0,30); if(!n) return;
+  ME=n; store.set('drop.me',n); setMe();
+  call('hello', KEY, DEV, ME).then(loadDevices).catch(function(){});
+  start();
+}
 $('nameOk').onclick = function(){ setName($('nameIn').value); };
 $('me').onclick = function(){ if(KEY) naming(); };
 
@@ -271,8 +288,10 @@ document.addEventListener('visibilitychange', function(){ if(document.visibility
 $('ttl').onchange = function(){ store.set('drop.ttl', this.value); };
 
 /* ---------- shelf ---------- */
+var refreshes = 0;
 function refresh(){
-  return call('list', KEY).then(function(list){
+  if (refreshes++ % 5 === 0) loadDevices();
+  return call('list', KEY, DEV, ME).then(function(list){
     list.forEach(function(it){ if(!firstLoad && !seen[it.id] && it.from!==ME && it.done) it._new = true; seen[it.id]=1; });
     var fresh = list.some(function(i){return i._new;});
     items = list; firstLoad = false; render();
@@ -298,10 +317,11 @@ function render(){
   items.forEach(function(it){
     var li=el('li','item'+(it._new?' new':'')), top=el('div','top'), body=el('div','body');
     top.appendChild(el('div','ico',icon(it)));
+    body.appendChild(tagEl(it.from));
     if(it.kind==='text'){ var tx=el('div','text'); linkify(tx, it.text.length>600 && !it._open ? it.text.slice(0,600)+'…' : it.text); body.appendChild(tx); }
     else body.appendChild(el('div','name',it.name));
-    var meta = 'From '+it.from+' · '+ago(it.created)+(it.kind==='file'?' · '+size(it.size):'')+' · deletes in '+left(it.expires);
-    if(it.kind==='file' && !it.done) meta = 'Uploading from '+it.from+'…';
+    var meta = ago(it.created)+(it.kind==='file'?' · '+size(it.size):'')+' · deletes in '+left(it.expires);
+    if(it.kind==='file' && !it.done) meta = 'Still uploading…';
     body.appendChild(el('div','meta',meta));
     top.appendChild(body); li.appendChild(top);
 
@@ -324,6 +344,34 @@ function render(){
     li.appendChild(acts);
     if(got[it.id] && got[it.id].url && /^image\//.test(it.mime)){ var img=el('img','prev'); img.src=got[it.id].url; img.alt=it.name; li.appendChild(img); li.appendChild(el('div','meta', isTouch?'Press and hold the picture to save it to Photos.':'')); }
     ul.appendChild(li);
+  });
+}
+
+/* ---------- device tags and the device list ---------- */
+function devIcon(n){ n=String(n||''); if(/laptop/i.test(n)) return '💻'; if(/phone|iphone|android|mobile|pixel|galaxy/i.test(n)) return '📱'; if(/pc|desktop|computer|windows/i.test(n)) return '🖥️'; if(/ipad|tablet/i.test(n)) return '📲'; return '🔹'; }
+function devHue(n){ var h=0; n=String(n||'').toLowerCase(); for(var i=0;i<n.length;i++) h=(h*31+n.charCodeAt(i))>>>0; return [212,152,28,276,340,190][h%6]; }
+function tagEl(from){
+  var t=el('span','tag', devIcon(from)+' '+(from||'Unknown')+(from===ME?' (this device)':''));
+  t.style.setProperty('--h', devHue(from));
+  return t;
+}
+function loadDevices(){
+  if(!KEY) return Promise.resolve();
+  return call('devices', KEY).then(function(d){ DEVICES=d||[]; renderDevices(); }).catch(function(){});
+}
+function renderDevices(){
+  var box=$('devs'); box.innerHTML='';
+  box.appendChild(el('span','muted','Your devices:'));
+  if(!DEVICES.length){ box.appendChild(el('span','muted',' none yet')); return; }
+  DEVICES.forEach(function(d){
+    var t=tagEl(d.name); if(d.id===DEV) t.textContent=devIcon(d.name)+' '+d.name+' (this device)';
+    t.title='Last opened Drop '+ago(d.seen)+(d.id===DEV?'':'. Tap to remove it from this list.');
+    if(d.id!==DEV) t.onclick=function(){
+      if(!confirm('Remove "'+d.name+'" from the list? This only tidies the list. To lock a lost device out, use "Sign out all other devices".')) return;
+      call('forgetDevice', KEY, d.id).then(loadDevices);
+    };
+    var s=el('span','seen', ago(d.seen)); t.appendChild(s);
+    box.appendChild(t);
   });
 }
 

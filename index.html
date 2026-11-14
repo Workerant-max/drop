@@ -63,6 +63,19 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
 .tag{--h:212;display:inline-flex;align-items:center;gap:6px;font-size:13px;font-weight:600;padding:3px 9px;border-radius:999px;margin-bottom:6px;
   background:hsl(var(--h) 85% 93%);color:hsl(var(--h) 70% 28%);border:1px solid hsl(var(--h) 60% 82%);cursor:default}
 @media (prefers-color-scheme:dark){.tag{background:hsl(var(--h) 45% 20%);color:hsl(var(--h) 85% 82%);border-color:hsl(var(--h) 40% 32%)}}
+.compose{min-height:64px;max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:10px;padding:10px;background:var(--card);outline:none;word-break:break-word}
+.compose:focus{border-color:var(--acc)}
+.compose:empty:before{content:attr(data-ph);color:var(--muted)}
+.rich{word-break:break-word;max-height:240px;overflow:hidden;position:relative}
+.rich.open{max-height:none}
+.rich:not(.open):after{content:"";position:absolute;left:0;right:0;bottom:0;height:40px;background:linear-gradient(transparent,var(--card))}
+.rich p,.compose p{margin:0 0 .5em}
+.rich ul,.rich ol,.compose ul,.compose ol{margin:.2em 0 .6em;padding-left:1.4em}
+.rich a,.compose a{color:var(--acc)}
+.rich h1,.rich h2,.rich h3,.compose h1,.compose h2,.compose h3{font-size:1.1em;margin:.4em 0}
+.rich table,.compose table{border-collapse:collapse;margin:.4em 0}
+.rich td,.rich th,.compose td,.compose th{border:1px solid var(--line);padding:3px 6px;vertical-align:top}
+.rich blockquote{margin:.3em 0;padding-left:10px;border-left:3px solid var(--line);color:var(--muted)}
 .devs{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px}
 .devs .tag{margin:0;cursor:pointer}
 .devs .seen{font-weight:400;opacity:.75}
@@ -111,7 +124,7 @@ dialog::backdrop{background:rgba(0,0,0,.45)}
       <p class="hide-touch">or drag them here, or press Ctrl+V to paste</p>
     </div>
     <div class="card" style="margin-top:10px">
-      <textarea id="txt" placeholder="Type or paste text, a link, an address…"></textarea>
+      <div id="txt" class="compose" contenteditable="true" role="textbox" aria-multiline="true" data-ph="Type or paste text, a link, an email… formatting is kept"></div>
       <div class="row">
         <button class="pri" id="sendTxt">Send text</button>
         <span class="sp"></span>
@@ -174,7 +187,7 @@ var CHUNK = 3 * 1024 * 1024, PARALLEL = 3, POLL_MS = 12000;
 var API_URL = 'https://script.google.com/macros/s/AKfycbwVj0OwAM3aQPiQrPNFNptkhdZt2i4u5Cqohy6KAcwsA3rPTkJ0FOigwA3dZKPMTmNhNg/exec';
 var IN_GAS = !!(window.google && google.script && google.script.run);
 var ARGS = { status:[], claim:[], hello:['k','dev','name'], makePairCode:['k'], redeemPairCode:['code'], rotateKey:['k'],
-  list:['k','dev','name'], devices:['k'], forgetDevice:['k','dev'],
+  list:['k','dev','name'], devices:['k'], forgetDevice:['k','dev'], sendRich:['k','from','text','html','ttl'], getText:['k','id'],
   sendText:['k','from','text','ttl'], beginFile:['k','from','name','mime','size','n','ttl'], putChunk:['k','id','i','data'],
   getChunk:['k','id','i'], remove:['k','id'], removeAll:['k'] };
 var store = {
@@ -318,17 +331,33 @@ function render(){
     var li=el('li','item'+(it._new?' new':'')), top=el('div','top'), body=el('div','body');
     top.appendChild(el('div','ico',icon(it)));
     body.appendChild(tagEl(it.from));
-    if(it.kind==='text'){ var tx=el('div','text'); linkify(tx, it.text.length>600 && !it._open ? it.text.slice(0,600)+'…' : it.text); body.appendChild(tx); }
+    var full = null;
+    if(it.kind==='text'){
+      full = (it.rich||it.long) ? needBody(it) : {text:it.text, html:''};
+      if(full && full.html){
+        var rc=el('div','rich'+(it._open?' open':'')); rc.innerHTML=cleanHtml(full.html); body.appendChild(rc);
+      } else {
+        var t0=(full && full.text!=null) ? full.text : it.text, tx=el('div','text');
+        linkify(tx, t0.length>600 && !it._open ? t0.slice(0,600)+'…' : t0); body.appendChild(tx);
+      }
+    }
     else body.appendChild(el('div','name',it.name));
-    var meta = ago(it.created)+(it.kind==='file'?' · '+size(it.size):'')+' · deletes in '+left(it.expires);
+    var meta = ago(it.created)+(it.kind==='file'?' · '+size(it.size):'')+(it.rich?' · formatted':'')+' · deletes in '+left(it.expires);
     if(it.kind==='file' && !it.done) meta = 'Still uploading…';
     body.appendChild(el('div','meta',meta));
     top.appendChild(body); li.appendChild(top);
 
     var acts=el('div','acts');
     if(it.kind==='text'){
-      var cp=el('button','pri','Copy'); cp.onclick=function(){ copy(it.text).then(function(ok){ toast(ok?'Copied':'Select the text and copy it'); }); }; acts.appendChild(cp);
-      if(it.text.length>600 && !it._open){ var more=el('button',null,'Show all'); more.onclick=function(){ it._open=true; render(); }; acts.appendChild(more); }
+      var ready = !!(full && full.text!=null);
+      var cp=el('button','pri', ready?'Copy':'Loading…'); cp.disabled=!ready;
+      cp.onclick=function(){
+        var f=(it.rich||it.long)?BODIES[it.id]:{text:it.text,html:''};
+        (f.html ? copyRich(f.html, f.text) : copy(f.text)).then(function(ok){ toast(ok?(f.html?'Copied with formatting':'Copied'):'Select the text and copy it'); });
+      };
+      acts.appendChild(cp);
+      if(ready && full.html){ var cpp=el('button',null,'Copy plain'); cpp.onclick=function(){ copy(full.text).then(function(ok){ toast(ok?'Copied as plain text':'Copy failed'); }); }; acts.appendChild(cpp); }
+      if(ready && !it._open && (full.html ? full.text.length>250 : full.text.length>600)){ var more=el('button',null,'Show all'); more.onclick=function(){ it._open=true; render(); }; acts.appendChild(more); }
     } else if(it.done){
       var g=got[it.id];
       if(g && g.url){
@@ -444,15 +473,104 @@ document.addEventListener('paste',function(e){
   if(fs.length && document.activeElement!==$('txt')){ e.preventDefault(); sendFiles(fs); }
 });
 
+/* ---------- formatted text: keep bold, bullets, links, tables; drop everything else ---------- */
+var KEEP_TAGS = {P:1,DIV:1,BR:1,B:1,STRONG:1,I:1,EM:1,U:1,S:1,STRIKE:1,A:1,UL:1,OL:1,LI:1,H1:1,H2:1,H3:1,H4:1,H5:1,H6:1,
+  BLOCKQUOTE:1,PRE:1,CODE:1,TABLE:1,THEAD:1,TBODY:1,TFOOT:1,TR:1,TD:1,TH:1,SPAN:1,HR:1,SUB:1,SUP:1};
+var DROP_TAGS = {SCRIPT:1,STYLE:1,HEAD:1,TITLE:1,META:1,LINK:1,IFRAME:1,FRAME:1,OBJECT:1,EMBED:1,SVG:1,MATH:1,TEMPLATE:1,
+  NOSCRIPT:1,BUTTON:1,INPUT:1,SELECT:1,TEXTAREA:1,FORM:1,IMG:1,PICTURE:1,VIDEO:1,AUDIO:1,CANVAS:1,XML:1};
+function cleanHtml(html){
+  var doc = new DOMParser().parseFromString(String(html||''), 'text/html');  // inert: nothing runs or loads
+  var out = document.createElement('div');
+  (function walk(src, dst){
+    for (var n = src.firstChild; n; n = n.nextSibling){
+      if (n.nodeType === 3) { dst.appendChild(document.createTextNode(n.nodeValue)); continue; }
+      if (n.nodeType !== 1) continue;
+      var tag = n.tagName.toUpperCase(), st = n.getAttribute('style') || '';
+      if (DROP_TAGS[tag] || /display\s*:\s*none|mso-hide\s*:\s*all/i.test(st)) continue;
+      // Outlook/Word bullets are a "·" in the Symbol font; make them a real bullet.
+      if (/font-family\s*:\s*["']?Symbol/i.test(st) && /^\s*[·]\s*$/.test(n.textContent)) { dst.appendChild(document.createTextNode('• ')); continue; }
+      if (!KEEP_TAGS[tag]) { walk(n, dst); continue; }                         // unwrap <o:p>, <font>, <section>…
+      var e = document.createElement(tag);
+      if (tag === 'A') { var h = (n.getAttribute('href') || '').trim(); if (/^(https?:|mailto:|tel:)/i.test(h)) { e.setAttribute('href', h); e.setAttribute('target', '_blank'); e.setAttribute('rel', 'noopener noreferrer'); } }
+      if (tag === 'TD' || tag === 'TH') ['colspan','rowspan'].forEach(function(a){ var v = n.getAttribute(a); if (/^\d{1,2}$/.test(v || '')) e.setAttribute(a, v); });
+      var keep = [];
+      if (/font-weight\s*:\s*(bold|[6-9]00)/i.test(st)) keep.push('font-weight:700');
+      else if ((tag === 'B' || tag === 'STRONG') && /font-weight\s*:\s*(normal|400)/i.test(st)) keep.push('font-weight:400'); // Google Docs wrapper
+      if (/font-style\s*:\s*italic/i.test(st)) keep.push('font-style:italic');
+      var td = /text-decoration[\w-]*\s*:\s*([^;]*)/i.exec(st);
+      if (td && /underline/i.test(td[1])) keep.push('text-decoration:underline'); else if (td && /line-through/i.test(td[1])) keep.push('text-decoration:line-through');
+      var ta = /text-align\s*:\s*(left|right|center|justify)/i.exec(st); if (ta) keep.push('text-align:' + ta[1].toLowerCase());
+      if (keep.length) e.setAttribute('style', keep.join(';'));
+      walk(n, e);
+      if (tag === 'SPAN' && !keep.length) { while (e.firstChild) dst.appendChild(e.firstChild); continue; } // plain spans add nothing
+      dst.appendChild(e);
+    }
+  })(doc.body, out);
+  return out.innerHTML.replace(/(<br>\s*){3,}/g, '<br><br>').replace(/^(\s|<br>)+|(\s|<br>)+$/g, '');
+}
+function isFormatted(html){ return /<(b|strong|i|em|u|s|strike|a|ul|ol|li|h[1-6]|table|blockquote|pre|code|hr|sub|sup)\b|style=/i.test(html); }
+// Plain-text version: bullets and numbers written out, so it still reads right where formatting can't go.
+function plainOf(html){
+  var box = document.createElement('div'); box.innerHTML = html;
+  Array.prototype.forEach.call(box.querySelectorAll('li'), function(li){
+    var ol = li.parentNode && li.parentNode.tagName === 'OL';
+    li.insertBefore(document.createTextNode(ol ? (Array.prototype.indexOf.call(li.parentNode.children, li) + 1) + '. ' : '• '), li.firstChild);
+  });
+  box.style.cssText = 'position:fixed;left:-9999px;top:0;white-space:normal'; document.body.appendChild(box);
+  var t = box.innerText; box.remove();
+  return t.replace(/\n{3,}/g, '\n\n').trim();
+}
+function copyRich(html, text){
+  var clean = cleanHtml(html);
+  var wrapped = '<div style="font-family:Calibri,Arial,sans-serif;font-size:11pt">' + clean + '</div>';
+  var viaApi = (navigator.clipboard && window.ClipboardItem)
+    ? Promise.resolve().then(function(){ return navigator.clipboard.write([new ClipboardItem({
+        'text/html': new Blob([wrapped], {type:'text/html'}), 'text/plain': new Blob([text], {type:'text/plain'}) })]); }).then(function(){ return true; })
+    : Promise.reject();
+  return viaApi.catch(function(){
+    // Fallback: select a rendered copy and use the browser's own copy, which keeps formatting.
+    var box = document.createElement('div'); box.contentEditable = 'true'; box.innerHTML = clean;
+    box.style.cssText = 'position:fixed;left:-9999px;top:0;opacity:0'; document.body.appendChild(box);
+    var r = document.createRange(); r.selectNodeContents(box); var s = getSelection(); s.removeAllRanges(); s.addRange(r);
+    var ok = false; try { ok = document.execCommand('copy'); } catch(e) {}
+    s.removeAllRanges(); box.remove(); return ok;
+  });
+}
+var BODIES = {};
+function needBody(it){
+  var b = BODIES[it.id];
+  if (b) return b.loading ? null : b;
+  BODIES[it.id] = {loading:true};
+  call('getText', KEY, it.id).then(function(r){ BODIES[it.id] = {text:String(r.text||''), html:String(r.html||'')}; render(); })
+    .catch(function(){ delete BODIES[it.id]; });
+  return null;
+}
+
+// Paste into the box: keep the formatting, but cleaned.
+$('txt').addEventListener('paste', function(e){
+  var cd = e.clipboardData; if (!cd) return;
+  if (cd.files && cd.files.length) return;                 // files are handled by the page-wide paste
+  var html = cd.getData('text/html'), text = cd.getData('text/plain');
+  e.preventDefault();
+  if (html) document.execCommand('insertHTML', false, cleanHtml(html) || text.replace(/[&<>]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c]; }));
+  else document.execCommand('insertText', false, text);
+});
+function composeEmpty(){ return !$('txt').innerText.trim(); }
+function clearCompose(){ $('txt').innerHTML = ''; }
+
 $('sendTxt').onclick=function(){
-  var t=$('txt').value; if(!t.trim()) return;
+  if (composeEmpty()) return;
+  var html = cleanHtml($('txt').innerHTML), rich = isFormatted(html);
+  var text = rich ? plainOf(html) : $('txt').innerText.replace(/ /g, ' ').replace(/\n{3,}/g, '\n\n').trim();
   var b=this; b.disabled=true;
-  var go = t.length>5000 ? sendFile(new File([t],'text-'+new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')+'.txt',{type:'text/plain'})) : call('sendText', KEY, ME, t, ttl()).then(function(id){ seen[id]=1; toast('Sent'); });
-  Promise.resolve(go).then(function(){ $('txt').value=''; refresh(); })
-    .catch(function(e){ if(/TOO_LONG/.test(msg(e))) return sendFile(new File([t],'text.txt',{type:'text/plain'})).then(function(){ $('txt').value=''; }); toast(msg(e)); })
+  var go = (rich || text.length > 5000)
+    ? call('sendRich', KEY, ME, text, rich ? html : '', ttl())
+    : call('sendText', KEY, ME, text, ttl()).catch(function(e){ if(/TOO_LONG/.test(msg(e))) return call('sendRich', KEY, ME, text, '', ttl()); throw e; });
+  go.then(function(id){ seen[id]=1; toast(rich ? 'Sent with formatting' : 'Sent'); clearCompose(); refresh(); })
+    .catch(function(e){ toast(msg(e)); })
     .then(function(){ b.disabled=false; });
 };
-$('txt').onkeydown=function(e){ if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)) $('sendTxt').click(); };
+$('txt').onkeydown=function(e){ if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)) { e.preventDefault(); $('sendTxt').click(); } };
 
 function copy(text){
   var p = (navigator.clipboard && navigator.clipboard.writeText) ? navigator.clipboard.writeText(text).then(function(){return true;}) : Promise.reject();
@@ -484,7 +602,7 @@ function takeShared(){
     var files = got.filter(function(g){return g.file;}).map(function(g){return g.file;});
     var texts = got.filter(function(g){return g.text;}).map(function(g){return g.text;});
     return sendFiles(files).then(function(){
-      return texts.reduce(function(p,t){ return p.then(function(){ return call('sendText', KEY, ME, t.slice(0,5000), ttl()); }); }, Promise.resolve());
+      return texts.reduce(function(p,t){ return p.then(function(){ return t.length > 1500 ? call('sendRich', KEY, ME, t, '', ttl()) : call('sendText', KEY, ME, t, ttl()); }); }, Promise.resolve());
     }).then(function(){ if (texts.length) { toast('Sent'); refresh(); } });
   }).catch(function(e){ toast('Could not send the shared item: '+msg(e)); });
 }

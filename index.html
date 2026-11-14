@@ -1,0 +1,470 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Drop</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon-192.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Drop">
+<meta name="theme-color" content="#2563eb">
+<script>if ('serviceWorker' in navigator) addEventListener('load', function () { navigator.serviceWorker.register('sw.js'); });</script>
+<style>
+:root{--bg:#f6f7f9;--card:#fff;--ink:#14171c;--muted:#68707d;--line:#e3e6ea;--acc:#2563eb;--acc-ink:#fff;--soft:#eef3ff;--bad:#c62828;--ok:#1b7f45}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1115;--card:#181b21;--ink:#eef0f3;--muted:#9aa3af;--line:#2a2f37;--acc:#5b8cff;--acc-ink:#0b0d10;--soft:#1c2433;--bad:#ff6b6b;--ok:#4ad08a}}
+*{box-sizing:border-box}
+html,body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif}
+main{max-width:680px;margin:0 auto;padding:16px 16px 48px}
+header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+h1{font-size:22px;margin:0;letter-spacing:-.01em}
+h2{font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:22px 0 8px}
+.me{color:var(--muted);font-size:14px;cursor:pointer}
+.sp{flex:1}
+button,.btn{font:inherit;font-size:15px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:9px 14px;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:6px}
+button.pri,.btn.pri{background:var(--acc);border-color:var(--acc);color:var(--acc-ink);font-weight:600}
+button.bad{color:var(--bad)}
+button:disabled{opacity:.5;cursor:default}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px}
+.zone{border:2px dashed var(--line);text-align:center;padding:22px 14px}
+.zone.over{border-color:var(--acc);background:var(--soft)}
+.zone p{margin:8px 0 0;color:var(--muted);font-size:14px}
+textarea,input[type=text],input[type=tel],select{font:inherit;width:100%;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:10px;padding:10px}
+textarea{min-height:64px;resize:vertical}
+.row{display:flex;gap:8px;align-items:center;margin-top:10px;flex-wrap:wrap}
+.row select{width:auto}
+.muted{color:var(--muted);font-size:14px}
+ul{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px}
+li.item{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:12px}
+li.item.new{border-color:var(--acc);box-shadow:0 0 0 2px var(--soft)}
+.top{display:flex;gap:10px;align-items:flex-start}
+.ico{width:36px;height:36px;border-radius:9px;background:var(--soft);display:grid;place-items:center;flex:none;font-size:18px}
+.body{flex:1;min-width:0}
+.name{font-weight:600;word-break:break-word}
+.text{white-space:pre-wrap;word-break:break-word}
+.text a{color:var(--acc)}
+.meta{color:var(--muted);font-size:13px;margin-top:2px}
+.acts{display:flex;gap:6px;flex-wrap:wrap;margin-top:10px}
+.acts button,.acts .btn{padding:7px 12px;font-size:14px}
+.bar{height:6px;background:var(--line);border-radius:3px;overflow:hidden;margin-top:8px}
+.bar i{display:block;height:100%;background:var(--acc);width:0}
+img.prev{max-width:100%;border-radius:10px;margin-top:10px;display:block}
+.empty{color:var(--muted);text-align:center;padding:24px 0}
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0}
+#toast{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 14px;border-radius:10px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90vw}
+#toast.on{opacity:1}
+dialog{border:1px solid var(--line);border-radius:16px;background:var(--card);color:var(--ink);max-width:340px;width:calc(100% - 32px)}
+dialog::backdrop{background:rgba(0,0,0,.45)}
+#qr{display:grid;place-items:center;background:#fff;padding:12px;border-radius:12px;margin:10px 0}
+.code{font:700 34px/1.1 ui-monospace,Consolas,monospace;letter-spacing:.18em;text-align:center;margin:6px 0}
+.foot{margin-top:28px;display:flex;gap:8px;flex-wrap:wrap}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Drop</h1>
+    <span class="me" id="me" title="Rename this device"></span>
+    <span class="sp"></span>
+    <button id="addDev" hidden>Add a device</button>
+  </header>
+
+  <section id="loading" class="muted">Loading…</section>
+
+  <!-- not joined yet -->
+  <section id="setup" hidden>
+    <div class="card" id="claimBox" hidden>
+      <p><b>First device.</b> Set Drop up on this device. Every other device joins from here.</p>
+      <button class="pri" id="claim">Set up Drop on this device</button>
+    </div>
+    <div class="card" id="joinBox" hidden>
+      <p><b>Join this device.</b> On a device that is already set up, tap <b>Add a device</b>. Then either scan its QR code with this device's camera, or type the 6-digit code here:</p>
+      <div class="row"><input type="tel" id="code" inputmode="numeric" maxlength="7" placeholder="123456" style="max-width:160px"><button class="pri" id="join">Join</button></div>
+      <p class="muted" id="setupMsg"></p>
+    </div>
+  </section>
+
+  <!-- naming -->
+  <section id="naming" hidden>
+    <div class="card">
+      <p><b>What is this device?</b> Its name shows on everything it sends.</p>
+      <div class="chips" id="chips"></div>
+      <div class="row"><input type="text" id="nameIn" maxlength="30" placeholder="Or type a name"><button class="pri" id="nameOk">Save</button></div>
+    </div>
+  </section>
+
+  <!-- main -->
+  <section id="main" hidden>
+    <div class="card zone" id="zone">
+      <input type="file" id="file" multiple hidden>
+      <button class="pri" id="pick">Send files or photos</button>
+      <p class="hide-touch">or drag them here, or press Ctrl+V to paste</p>
+    </div>
+    <div class="card" style="margin-top:10px">
+      <textarea id="txt" placeholder="Type or paste text, a link, an address…"></textarea>
+      <div class="row">
+        <button class="pri" id="sendTxt">Send text</button>
+        <span class="sp"></span>
+        <span class="muted">Delete after</span>
+        <select id="ttl"><option value="1">1 hour</option><option value="24" selected>24 hours</option><option value="168">7 days</option></select>
+      </div>
+    </div>
+    <div id="ups"></div>
+
+    <h2>On the shelf</h2>
+    <ul id="list"></ul>
+
+    <div class="foot">
+      <button class="bad" id="wipe">Delete everything now</button>
+      <span class="sp"></span>
+      <button id="iosSetup">iPhone share menu</button>
+      <button id="leave">Remove this device</button>
+      <button id="rotate">Sign out all other devices</button>
+    </div>
+  </section>
+</main>
+
+<dialog id="dlg">
+  <b>Add a device</b>
+  <p class="muted" style="margin:6px 0 0">Phone: scan this with the camera and open the link. Then add it to the home screen.</p>
+  <div id="qr"></div>
+  <p class="muted" style="margin:0">Laptop: open Drop and type this code. It works for 10 minutes.</p>
+  <div class="code" id="pcode">······</div>
+  <div class="row"><button id="copyLink">Copy setup link</button><span class="sp"></span><button class="pri" id="dlgClose">Done</button></div>
+</dialog>
+
+<dialog id="iosDlg">
+  <b>Put Drop in the iPhone share menu</b>
+  <p class="muted" style="margin:6px 0">Do this on the iPhone, once. You build it in Apple's Shortcuts app.</p>
+  <ol style="padding-left:18px;margin:8px 0;font-size:14px">
+    <li>Open <b>Shortcuts</b>, tap <b>+</b>, and name it <b>Drop</b>.</li>
+    <li>Tap the <b>ⓘ</b> button and turn on <b>Show in Share Sheet</b>.</li>
+    <li>Add <b>Repeat with Each</b> and set it to <b>Shortcut Input</b>.</li>
+    <li>Inside the repeat, add <b>Base64 Encode</b> for <b>Repeat Item</b>. Under <b>Show More</b>, set Line Breaks to <b>None</b>.</li>
+    <li>Still inside, add <b>Get Contents of URL</b>. Paste the <b>address</b> below as the URL. Tap <b>Show More</b>: set Method to <b>POST</b> and Request Body to <b>JSON</b>, then add these five Text fields:
+      <br><code>a</code> = <code>share</code>
+      <br><code>k</code> = paste the <b>key</b>
+      <br><code>from</code> = <code>iPhone</code>
+      <br><code>name</code> = Repeat Item, then tap it and choose <b>Name</b>
+      <br><code>data</code> = <b>Base64 Encoded</b></li>
+    <li>Still inside, add <b>Show Notification</b> and put <b>Contents of URL</b> in it.</li>
+  </ol>
+  <div class="row"><button id="copyApi">Copy address</button><button id="copyKey">Copy key</button></div>
+  <p class="muted" style="margin:8px 0 0">Then Share → Drop sends anything: photos, files, links, text (up to 40 MB). If you ever press "Sign out all other devices", copy the new key into the shortcut.</p>
+  <div class="row"><span class="sp"></span><button class="pri" id="iosClose">Done</button></div>
+</dialog>
+
+<div id="toast"></div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+(function(){
+var CHUNK = 3 * 1024 * 1024, PARALLEL = 3, POLL_MS = 12000;
+// The Apps Script web app. Inside Google the page talks to it directly; the installed app posts JSON to it.
+var API_URL = 'https://script.google.com/macros/s/AKfycbwVj0OwAM3aQPiQrPNFNptkhdZt2i4u5Cqohy6KAcwsA3rPTkJ0FOigwA3dZKPMTmNhNg/exec';
+var IN_GAS = !!(window.google && google.script && google.script.run);
+var ARGS = { status:[], claim:[], hello:['k'], makePairCode:['k'], redeemPairCode:['code'], rotateKey:['k'], list:['k'],
+  sendText:['k','from','text','ttl'], beginFile:['k','from','name','mime','size','n','ttl'], putChunk:['k','id','i','data'],
+  getChunk:['k','id','i'], remove:['k','id'], removeAll:['k'] };
+var store = {
+  get:function(k){try{return localStorage.getItem(k);}catch(e){return null;}},
+  set:function(k,v){try{localStorage.setItem(k,v);}catch(e){}},
+  del:function(k){try{localStorage.removeItem(k);}catch(e){}}
+};
+var KEY = store.get('drop.key'), ME = store.get('drop.me'), APP_URL = '';
+var items = [], seen = {}, got = {}, firstLoad = true, pollTimer = null, ups = {};
+var $ = function(id){return document.getElementById(id);};
+var isTouch = matchMedia('(pointer:coarse)').matches;
+
+function call(fn){
+  var args = Array.prototype.slice.call(arguments,1);
+  if (IN_GAS) return new Promise(function(res,rej){
+    var r = google.script.run.withSuccessHandler(res).withFailureHandler(rej);
+    r[fn].apply(r,args);
+  });
+  var body = { a: fn };
+  (ARGS[fn]||[]).forEach(function(name,i){ body[name] = args[i]; });
+  // text/plain keeps it a "simple" request, so the browser skips the CORS preflight Apps Script can't answer.
+  return fetch(API_URL, { method:'POST', headers:{'Content-Type':'text/plain;charset=utf-8'}, body: JSON.stringify(body), redirect:'follow' })
+    .then(function(r){ if(!r.ok) throw new Error('Drop server said '+r.status); return r.json(); })
+    .then(function(j){ if(!j.ok) throw new Error(j.error); return j.r; });
+}
+function msg(e){ return (e && e.message) || String(e); }
+function noKey(e){ return /NOKEY/.test(msg(e)); }
+function retry(f,n){ n=n||3; return f().catch(function(e){ if(n<=1||noKey(e)) throw e; return new Promise(function(r){setTimeout(r,1200);}).then(function(){return retry(f,n-1);}); }); }
+function toast(t){ var el=$('toast'); el.textContent=t; el.classList.add('on'); clearTimeout(toast.t); toast.t=setTimeout(function(){el.classList.remove('on');},2600); }
+function show(id){ ['loading','setup','naming','main'].forEach(function(s){ $(s).hidden = s!==id; }); $('addDev').hidden = id!=='main'; }
+function setMe(){ $('me').textContent = ME ? '· ' + ME : ''; }
+
+/* ---------- start ---------- */
+var HASH_KEY = null;
+function gotHash(h){
+  var m = /(?:^|&|#)k=([a-f0-9]{64})/.exec(h || '');
+  if (m) HASH_KEY = m[1];
+  boot();
+}
+if (IN_GAS) google.script.url.getLocation(function(loc){ gotHash(loc.hash); });
+else gotHash(location.hash);
+
+// Try the key this device saved, then the one in the link it was opened from
+// (a home-screen bookmark keeps the link, so it survives the browser clearing storage).
+function boot(){
+  var tries = [KEY, HASH_KEY].filter(function(k,i,a){ return k && a.indexOf(k)===i; });
+  if (!tries.length) return setup();
+  (function attempt(i){
+    call('hello', tries[i]).then(function(h){
+      KEY = tries[i]; store.set('drop.key', KEY); APP_URL = IN_GAS ? h.url : location.origin + location.pathname;
+      if (!ME) return naming();
+      start();
+    }).catch(function(e){
+      if (!noKey(e)) { $('loading').textContent = 'Could not reach Drop: ' + msg(e); return; }
+      if (i+1 < tries.length) return attempt(i+1);
+      KEY=null; store.del('drop.key'); setup('This device was signed out. Join it again.');
+    });
+  })(0);
+}
+
+function setup(note){
+  show('setup');
+  call('status').then(function(s){
+    $('claimBox').hidden = s.claimed; $('joinBox').hidden = !s.claimed;
+    $('setupMsg').textContent = note || '';
+  }).catch(function(e){ $('setupMsg').textContent = msg(e); $('joinBox').hidden=false; });
+}
+$('claim').onclick = function(){
+  this.disabled = true;
+  call('claim').then(function(k){ KEY=k; store.set('drop.key',k); boot(); })
+    .catch(function(e){ toast(msg(e)); setup(); });
+};
+$('join').onclick = function(){
+  var b=this; b.disabled=true;
+  call('redeemPairCode', $('code').value).then(function(k){ KEY=k; store.set('drop.key',k); boot(); })
+    .catch(function(e){ $('setupMsg').textContent = msg(e); }).then(function(){ b.disabled=false; });
+};
+$('code').onkeydown = function(e){ if(e.key==='Enter') $('join').click(); };
+
+function naming(){
+  show('naming');
+  var c = $('chips'); c.innerHTML='';
+  ['PC','Work laptop','iPhone','Work phone'].forEach(function(n){
+    var b=document.createElement('button'); b.textContent=n; b.onclick=function(){ setName(n); }; c.appendChild(b);
+  });
+  $('nameIn').value = ME || '';
+}
+function setName(n){ n=String(n||'').trim().slice(0,30); if(!n) return; ME=n; store.set('drop.me',n); setMe(); start(); }
+$('nameOk').onclick = function(){ setName($('nameIn').value); };
+$('me').onclick = function(){ if(KEY) naming(); };
+
+function start(){
+  show('main'); setMe();
+  var t = store.get('drop.ttl'); if (t) $('ttl').value = t;
+  if (isTouch) Array.prototype.forEach.call(document.querySelectorAll('.hide-touch'),function(e){e.textContent='Photos, videos, PDFs, anything up to 300 MB';});
+  refresh();
+  takeShared();
+  clearInterval(pollTimer);
+  pollTimer = setInterval(function(){ if(document.visibilityState==='visible') refresh(); }, POLL_MS);
+}
+document.addEventListener('visibilitychange', function(){ if(document.visibilityState==='visible' && KEY && ME) refresh(); });
+$('ttl').onchange = function(){ store.set('drop.ttl', this.value); };
+
+/* ---------- shelf ---------- */
+function refresh(){
+  return call('list', KEY).then(function(list){
+    list.forEach(function(it){ if(!firstLoad && !seen[it.id] && it.from!==ME && it.done) it._new = true; seen[it.id]=1; });
+    var fresh = list.some(function(i){return i._new;});
+    items = list; firstLoad = false; render();
+    if (fresh) toast('New item on the shelf');
+  }).catch(function(e){ if(noKey(e)){ KEY=null; store.del('drop.key'); setup('This device was signed out. Join it again.'); } });
+}
+
+function ago(t){ var s=(Date.now()-t)/1000; if(s<60) return 'just now'; if(s<3600) return Math.floor(s/60)+' min ago'; if(s<86400) return Math.floor(s/3600)+' h ago'; return Math.floor(s/86400)+' d ago'; }
+function left(t){ var s=(t-Date.now())/1000; if(s<3600) return Math.max(1,Math.ceil(s/60))+' min'; if(s<86400) return Math.round(s/3600)+' h'; return Math.round(s/86400)+' d'; }
+function size(b){ if(b<1024) return b+' B'; if(b<1048576) return (b/1024).toFixed(0)+' KB'; return (b/1048576).toFixed(1)+' MB'; }
+function icon(it){ if(it.kind==='text') return /^https?:\/\/\S+$/.test(it.text.trim())?'🔗':'📝'; var m=it.mime||''; if(m.indexOf('image/')===0) return '🖼️'; if(m.indexOf('video/')===0) return '🎬'; if(m.indexOf('audio/')===0) return '🎵'; if(/pdf/.test(m)) return '📄'; return '📦'; }
+function el(tag, cls, text){ var e=document.createElement(tag); if(cls) e.className=cls; if(text!=null) e.textContent=text; return e; }
+
+function linkify(parent, text){
+  var re=/https?:\/\/[^\s<>"']+/g, last=0, m;
+  while((m=re.exec(text))){ parent.appendChild(document.createTextNode(text.slice(last,m.index))); var a=el('a',null,m[0]); a.href=m[0]; a.target='_blank'; a.rel='noopener noreferrer'; parent.appendChild(a); last=m.index+m[0].length; }
+  parent.appendChild(document.createTextNode(text.slice(last)));
+}
+
+function render(){
+  var ul=$('list'); ul.innerHTML='';
+  if(!items.length){ ul.appendChild(el('li','empty','Nothing here. Anything you send shows up on all your devices.')); return; }
+  items.forEach(function(it){
+    var li=el('li','item'+(it._new?' new':'')), top=el('div','top'), body=el('div','body');
+    top.appendChild(el('div','ico',icon(it)));
+    if(it.kind==='text'){ var tx=el('div','text'); linkify(tx, it.text.length>600 && !it._open ? it.text.slice(0,600)+'…' : it.text); body.appendChild(tx); }
+    else body.appendChild(el('div','name',it.name));
+    var meta = 'From '+it.from+' · '+ago(it.created)+(it.kind==='file'?' · '+size(it.size):'')+' · deletes in '+left(it.expires);
+    if(it.kind==='file' && !it.done) meta = 'Uploading from '+it.from+'…';
+    body.appendChild(el('div','meta',meta));
+    top.appendChild(body); li.appendChild(top);
+
+    var acts=el('div','acts');
+    if(it.kind==='text'){
+      var cp=el('button','pri','Copy'); cp.onclick=function(){ copy(it.text).then(function(ok){ toast(ok?'Copied':'Select the text and copy it'); }); }; acts.appendChild(cp);
+      if(it.text.length>600 && !it._open){ var more=el('button',null,'Show all'); more.onclick=function(){ it._open=true; render(); }; acts.appendChild(more); }
+    } else if(it.done){
+      var g=got[it.id];
+      if(g && g.url){
+        var sv=el('a','btn pri','Save'); sv.href=g.url; sv.download=it.name; acts.appendChild(sv);
+        if(isTouch && navigator.canShare){ try{ if(navigator.canShare({files:[g.file]})){ var sh=el('button',null,'Share / Save to…'); sh.onclick=function(){ navigator.share({files:[g.file]}).catch(function(e){ if(e.name!=='AbortError') toast('Sharing is blocked here. Use Save instead.'); }); }; acts.appendChild(sh); } }catch(e){} }
+      } else if(g && g.p!=null){
+        var bar=el('div','bar'), i=el('i'); i.style.width=Math.round(g.p*100)+'%'; bar.appendChild(i); body.appendChild(bar);
+      } else {
+        var dl=el('button','pri','Download'); dl.onclick=function(){ fetchItem(it); }; acts.appendChild(dl);
+      }
+    }
+    var del=el('button','bad','Delete'); del.onclick=function(){ removeItem(it); }; acts.appendChild(del);
+    li.appendChild(acts);
+    if(got[it.id] && got[it.id].url && /^image\//.test(it.mime)){ var img=el('img','prev'); img.src=got[it.id].url; img.alt=it.name; li.appendChild(img); li.appendChild(el('div','meta', isTouch?'Press and hold the picture to save it to Photos.':'')); }
+    ul.appendChild(li);
+  });
+}
+
+function removeItem(it){
+  items = items.filter(function(x){return x.id!==it.id;}); render();
+  if(got[it.id] && got[it.id].url) URL.revokeObjectURL(got[it.id].url); delete got[it.id];
+  call('remove', KEY, it.id).then(function(){ toast('Deleted'); }).catch(function(e){ toast(msg(e)); refresh(); });
+}
+$('wipe').onclick = function(){
+  if(!confirm('Delete everything on the shelf from every device, permanently?')) return;
+  call('removeAll', KEY).then(function(){ got={}; toast('Shelf cleared'); refresh(); }).catch(function(e){ toast(msg(e)); });
+};
+
+/* ---------- download ---------- */
+function b64ToBytes(b){ var s=atob(b), u=new Uint8Array(s.length); for(var i=0;i<s.length;i++) u[i]=s.charCodeAt(i); return u; }
+function fetchItem(it){
+  got[it.id]={p:0}; render();
+  var parts=new Array(it.n), done=0, next=0;
+  function worker(){
+    if(next>=it.n) return Promise.resolve();
+    var i=next++;
+    return retry(function(){ return call('getChunk', KEY, it.id, i); }).then(function(b){ parts[i]=b64ToBytes(b); done++; got[it.id].p=done/it.n; render(); return worker(); });
+  }
+  var ws=[]; for(var w=0;w<Math.min(PARALLEL,it.n);w++) ws.push(worker());
+  Promise.all(ws).then(function(){
+    var blob=new Blob(parts,{type:it.mime||'application/octet-stream'}), file;
+    try{ file=new File([blob], it.name, {type:blob.type}); }catch(e){ file=blob; }
+    got[it.id]={url:URL.createObjectURL(blob), file:file};
+    render();
+    if(!isTouch){ var a=document.createElement('a'); a.href=got[it.id].url; a.download=it.name; document.body.appendChild(a); a.click(); a.remove(); }
+  }).catch(function(e){ delete got[it.id]; render(); toast(msg(e)); });
+}
+
+/* ---------- send ---------- */
+function ttl(){ return Number($('ttl').value); }
+function toB64(blob){ return new Promise(function(res,rej){ var r=new FileReader(); r.onload=function(){ var s=String(r.result), c=s.indexOf(','); res(c<0?'':s.slice(c+1)); }; r.onerror=function(){rej(r.error);}; r.readAsDataURL(blob); }); }
+
+function renderUps(){
+  var box=$('ups'); box.innerHTML='';
+  Object.keys(ups).forEach(function(k){ var u=ups[k], c=el('div','card'); c.style.marginTop='10px'; c.appendChild(el('div','meta','Sending '+u.name+' · '+Math.round(u.p*100)+'%')); var bar=el('div','bar'), i=el('i'); i.style.width=Math.round(u.p*100)+'%'; bar.appendChild(i); c.appendChild(bar); box.appendChild(c); });
+}
+
+function sendFile(f){
+  var n=Math.ceil(f.size/CHUNK), name=f.name||('pasted-'+Date.now()+'.'+((f.type.split('/')[1])||'bin')), tag=Math.random().toString(36).slice(2);
+  ups[tag]={name:name,p:0}; renderUps();
+  return call('beginFile', KEY, ME, name, f.type, f.size, n, ttl()).then(function(id){
+    var next=0, done=0;
+    function worker(){
+      if(next>=n) return Promise.resolve();
+      var i=next++;
+      return toB64(f.slice(i*CHUNK, Math.min(f.size,(i+1)*CHUNK))).then(function(b){ return retry(function(){ return call('putChunk', KEY, id, i, b); }); })
+        .then(function(){ done++; ups[tag].p=done/n; renderUps(); return worker(); });
+    }
+    var ws=[]; for(var w=0;w<Math.min(PARALLEL,n);w++) ws.push(worker());
+    return Promise.all(ws).then(function(){ seen[id]=1; });
+  }).then(function(){ delete ups[tag]; renderUps(); toast('Sent '+name); refresh(); })
+    .catch(function(e){ delete ups[tag]; renderUps(); toast('Failed: '+msg(e)); refresh(); });
+}
+function sendFiles(list){ var arr=Array.prototype.slice.call(list||[]); if(!arr.length) return; var big=arr.filter(function(f){return f.size>300*1024*1024;}); if(big.length) toast(big[0].name+' is over 300 MB'); arr=arr.filter(function(f){return f.size<=300*1024*1024;}); return arr.reduce(function(p,f){ return p.then(function(){ return sendFile(f); }); }, Promise.resolve()); }
+
+$('pick').onclick=function(){ $('file').click(); };
+$('file').onchange=function(){ sendFiles(this.files); this.value=''; };
+var zone=$('zone');
+['dragenter','dragover'].forEach(function(t){ document.addEventListener(t,function(e){ e.preventDefault(); zone.classList.add('over'); }); });
+['dragleave','drop'].forEach(function(t){ document.addEventListener(t,function(e){ e.preventDefault(); if(t==='drop'||e.target===document.documentElement) zone.classList.remove('over'); }); });
+document.addEventListener('drop',function(e){ if(KEY&&ME&&e.dataTransfer&&e.dataTransfer.files.length) sendFiles(e.dataTransfer.files); });
+document.addEventListener('paste',function(e){
+  if(!KEY||!ME||!e.clipboardData) return;
+  var fs=Array.prototype.slice.call(e.clipboardData.files||[]);
+  if(fs.length && document.activeElement!==$('txt')){ e.preventDefault(); sendFiles(fs); }
+});
+
+$('sendTxt').onclick=function(){
+  var t=$('txt').value; if(!t.trim()) return;
+  var b=this; b.disabled=true;
+  var go = t.length>5000 ? sendFile(new File([t],'text-'+new Date().toISOString().slice(0,16).replace(/[:T]/g,'-')+'.txt',{type:'text/plain'})) : call('sendText', KEY, ME, t, ttl()).then(function(id){ seen[id]=1; toast('Sent'); });
+  Promise.resolve(go).then(function(){ $('txt').value=''; refresh(); })
+    .catch(function(e){ if(/TOO_LONG/.test(msg(e))) return sendFile(new File([t],'text.txt',{type:'text/plain'})).then(function(){ $('txt').value=''; }); toast(msg(e)); })
+    .then(function(){ b.disabled=false; });
+};
+$('txt').onkeydown=function(e){ if(e.key==='Enter'&&(e.ctrlKey||e.metaKey)) $('sendTxt').click(); };
+
+function copy(text){
+  var p = (navigator.clipboard && navigator.clipboard.writeText) ? navigator.clipboard.writeText(text).then(function(){return true;}) : Promise.reject();
+  return p.catch(function(){
+    var ta=document.createElement('textarea'); ta.value=text; ta.setAttribute('readonly',''); ta.style.position='fixed'; ta.style.top='0'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0,text.length); var ok=false; try{ ok=document.execCommand('copy'); }catch(e){} ta.remove(); return ok;
+  });
+}
+
+/* ---------- things shared in from the Android share menu (the service worker parks them) ---------- */
+function takeShared(){
+  if (IN_GAS || !/[?&]shared=1/.test(location.search) || !('caches' in window)) return;
+  try { history.replaceState(null, '', location.pathname + location.hash); } catch(e){}
+  caches.open('drop-share').then(function(c){
+    return c.keys().then(function(keys){
+      return Promise.all(keys.map(function(req){
+        return c.match(req).then(function(res){
+          c.delete(req);
+          if (!res) return null;
+          if (res.headers.get('x-text')) return res.text().then(function(t){ return {text:t}; });
+          return res.blob().then(function(b){ return {file: new File([b], decodeURIComponent(res.headers.get('x-name')||'shared'), {type: b.type})}; });
+        });
+      }));
+    });
+  }).then(function(got){
+    got = (got||[]).filter(Boolean);
+    if (!got.length) return;
+    toast('Sending what you shared…');
+    var files = got.filter(function(g){return g.file;}).map(function(g){return g.file;});
+    var texts = got.filter(function(g){return g.text;}).map(function(g){return g.text;});
+    return sendFiles(files).then(function(){
+      return texts.reduce(function(p,t){ return p.then(function(){ return call('sendText', KEY, ME, t.slice(0,5000), ttl()); }); }, Promise.resolve());
+    }).then(function(){ if (texts.length) { toast('Sent'); refresh(); } });
+  }).catch(function(e){ toast('Could not send the shared item: '+msg(e)); });
+}
+
+/* ---------- iPhone share menu (Shortcuts) ---------- */
+$('iosSetup').onclick = function(){ $('iosDlg').showModal(); };
+$('iosClose').onclick = function(){ $('iosDlg').close(); };
+$('copyApi').onclick = function(){ copy(API_URL).then(function(ok){ toast(ok?'Address copied':'Copy failed'); }); };
+$('copyKey').onclick = function(){ copy(KEY).then(function(ok){ toast(ok?'Key copied. Paste it into the shortcut only.':'Copy failed'); }); };
+
+/* ---------- devices ---------- */
+$('addDev').onclick=function(){
+  var link = APP_URL + '#k=' + KEY, q=$('qr'); q.innerHTML=''; $('pcode').textContent='······';
+  try{ new QRCode(q,{text:link,width:220,height:220,correctLevel:QRCode.CorrectLevel.M}); }catch(e){ q.textContent='QR unavailable. Use the code.'; }
+  $('dlg').showModal();
+  call('makePairCode', KEY).then(function(c){ $('pcode').textContent=c; }).catch(function(e){ $('pcode').textContent='—'; toast(msg(e)); });
+  $('copyLink').onclick=function(){ copy(link).then(function(ok){ toast(ok?'Setup link copied. Only open it on your own devices.':'Copy failed'); }); };
+};
+$('dlgClose').onclick=function(){ $('dlg').close(); };
+$('leave').onclick=function(){
+  if(!confirm('Remove this device from Drop? You can join it again with a code.')) return;
+  store.del('drop.key'); KEY=null; clearInterval(pollTimer); setup();
+};
+$('rotate').onclick=function(){
+  if(!confirm('Sign out every other device? Each one will need a new code to join again.')) return;
+  call('rotateKey', KEY).then(function(k){ KEY=k; store.set('drop.key',k); toast('Other devices signed out'); }).catch(function(e){ toast(msg(e)); });
+};
+})();
+</script>
+</body>
+</html>
